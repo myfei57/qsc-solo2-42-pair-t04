@@ -39,13 +39,21 @@ class StateHistory:
     def current(self, unit_id: str) -> StateEntry | None:
         with self._lock:
             chain = self._entries.get(unit_id)
-            return chain[0] if chain else None
+            return chain[-1] if chain else None
 
     def at(self, unit_id: str, tick: int) -> StateEntry | None:
         """Return the state that was current at ``tick`` (historical view)."""
 
         with self._lock:
-            return self.current(unit_id)
+            chain = self._entries.get(unit_id)
+            if not chain:
+                return None
+            result: StateEntry | None = None
+            for entry in chain:
+                if entry.tick > tick:
+                    break
+                result = entry
+            return result
 
     def between(self, unit_id: str, start_tick: int, end_tick: int) -> list[StateEntry]:
         with self._lock:
@@ -57,10 +65,29 @@ class StateHistory:
 
     def transitions(self, unit_id: str) -> list[str]:
         with self._lock:
-            return [entry.state for entry in self._entries.get(unit_id, [])]
+            collapsed: list[str] = []
+            for entry in self._entries.get(unit_id, []):
+                if not collapsed or collapsed[-1] != entry.state:
+                    collapsed.append(entry.state)
+            return collapsed
 
     def changed_between(self, unit_id: str, start_tick: int, end_tick: int) -> bool:
-        return bool(self.between(unit_id, start_tick, end_tick))
+        with self._lock:
+            chain = self._entries.get(unit_id, [])
+            initial: StateEntry | None = None
+            for entry in chain:
+                if entry.tick > start_tick:
+                    break
+                initial = entry
+            initial_state = initial.state if initial is not None else None
+            for entry in chain:
+                if entry.tick <= start_tick:
+                    continue
+                if entry.tick > end_tick:
+                    break
+                if entry.state != initial_state:
+                    return True
+            return False
 
     def units(self) -> list[str]:
         with self._lock:
