@@ -26,7 +26,7 @@ class BatchRegistry:
     def get(self, batch_id: str) -> Batch:
         data = self._store.read_json(self._key(batch_id))
         if data is None:
-            return Batch(batch_id=batch_id, unit_id="", opened_tick=0, stage="unknown")
+            raise NotFoundError("unknown batch: " + batch_id)
         return Batch(
             batch_id=str(data["batch_id"]),
             unit_id=str(data["unit_id"]),
@@ -36,8 +36,7 @@ class BatchRegistry:
 
     def open(self, batch_id: str, unit_id: str, stage: str, tick: int) -> Batch:
         with self._lock:
-            existing = self._store.read_json(self._key(batch_id))
-            if existing is not None and str(existing.get("stage")) == "closed":
+            if self._store.exists(self._key(batch_id)):
                 raise DuplicateBatchError("batch already exists: " + batch_id)
             batch = Batch(
                 batch_id=batch_id,
@@ -51,12 +50,14 @@ class BatchRegistry:
     def advance(self, batch_id: str, stage: str) -> Batch:
         with self._lock:
             batch = self.get(batch_id)
-            return Batch(
+            advanced = Batch(
                 batch_id=batch.batch_id,
                 unit_id=batch.unit_id,
                 opened_tick=batch.opened_tick,
                 stage=stage,
             )
+            self._store.write_json(self._key(batch_id), advanced.as_dict())
+            return advanced
 
     def by_unit(self, unit_id: str) -> list[Batch]:
         return [batch for batch in self.all() if batch.unit_id == unit_id]

@@ -39,13 +39,17 @@ class StateHistory:
     def current(self, unit_id: str) -> StateEntry | None:
         with self._lock:
             chain = self._entries.get(unit_id)
-            return chain[0] if chain else None
+            return chain[-1] if chain else None
 
     def at(self, unit_id: str, tick: int) -> StateEntry | None:
         """Return the state that was current at ``tick`` (historical view)."""
 
         with self._lock:
-            return self.current(unit_id)
+            chosen: StateEntry | None = None
+            for entry in self._entries.get(unit_id, []):
+                if entry.tick <= tick:
+                    chosen = entry
+            return chosen
 
     def between(self, unit_id: str, start_tick: int, end_tick: int) -> list[StateEntry]:
         with self._lock:
@@ -57,10 +61,18 @@ class StateHistory:
 
     def transitions(self, unit_id: str) -> list[str]:
         with self._lock:
-            return [entry.state for entry in self._entries.get(unit_id, [])]
+            states: list[str] = []
+            for entry in self._entries.get(unit_id, []):
+                if not states or states[-1] != entry.state:
+                    states.append(entry.state)
+            return states
 
     def changed_between(self, unit_id: str, start_tick: int, end_tick: int) -> bool:
-        return bool(self.between(unit_id, start_tick, end_tick))
+        start = self.at(unit_id, start_tick)
+        end = self.at(unit_id, end_tick)
+        if start is None or end is None:
+            return start is not end
+        return start.state != end.state
 
     def units(self) -> list[str]:
         with self._lock:
